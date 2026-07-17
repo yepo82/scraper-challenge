@@ -25,3 +25,26 @@ export interface ScrapeCommandOptions {
 export interface RetryFailedCommandOptions {
   limit?: number;
 }
+
+export interface JsfInitialState {
+  html: string;
+  viewState: string;
+  formId: string;
+  formAction: string;
+}
+
+export interface JsfPartialUpdate {
+  id: string;
+  content: string;
+}
+
+export interface JsfPayloadOptions {
+  formId: string;
+  viewState: string;
+  params?: Record<string, string>;
+  ajax?: {
+    source: string;
+    execute?: string;
+    render?: string;
+  };
+}
