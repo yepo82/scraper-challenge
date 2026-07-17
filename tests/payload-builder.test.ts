@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildJsfPayload } from '../src/jsf/payload-builder.js';
+import { buildJsfPayload, extractOnclickParams } from '../src/jsf/payload-builder.js';
 
 describe('buildJsfPayload', () => {
   it('builds the base payload with the self-referencing form field and ViewState', () => {
@@ -64,5 +64,42 @@ describe('buildJsfPayload', () => {
       'javax.faces.partial.execute': 'formBuscador',
       'javax.faces.partial.render': 'formBuscador:resultPanel',
     });
+  });
+});
+
+describe('extractOnclickParams', () => {
+  // Bytes reales tomados del botón de búsqueda del sitio (ver Fase 5): jsf.util.chain(...) envuelve
+  // una llamada a mojarra.jsfcljs(...) cuyo objeto de params usa comillas simples escapadas con
+  // backslash (\') como delimitador, no comillas simples planas.
+  const REAL_ONCLICK =
+    String.raw`jsf.util.chain(this,event,'this.form.target=\'_self\';RichFaces.$(\'panelState\').show();','mojarra.jsfcljs(document.getElementById(\'formBuscador\'),{\'formBuscador:j_idt31\':\'formBuscador:j_idt31\',\'forward\':\'buscar\',\'busqueda\':\'especializada\',\'formBuscador:j_idt34\':\'21\',\'formBuscador:j_idt35\':\'DESC\',\'formBuscador:j_idt36\':\'Principal\',\'formBuscador:j_idt37\':\'1\'},\'\')');return false`;
+
+  it('extracts all params from the real backslash-escaped-quote onclick fixture', () => {
+    const params = extractOnclickParams(REAL_ONCLICK);
+
+    expect(params).toEqual({
+      'formBuscador:j_idt31': 'formBuscador:j_idt31',
+      forward: 'buscar',
+      busqueda: 'especializada',
+      'formBuscador:j_idt34': '21',
+      'formBuscador:j_idt35': 'DESC',
+      'formBuscador:j_idt36': 'Principal',
+      'formBuscador:j_idt37': '1',
+    });
+    expect(Object.keys(params)).toHaveLength(7);
+  });
+
+  it('extracts params from a mojarra.jsfcljs call with plain (non-escaped) quotes', () => {
+    const onclick = `mojarra.jsfcljs(document.getElementById('x'),{'a':'b'},'')`;
+
+    expect(extractOnclickParams(onclick)).toEqual({ a: 'b' });
+  });
+
+  it('returns {} without throwing when there is no mojarra.jsfcljs call', () => {
+    expect(extractOnclickParams("RichFaces.$('panelState').show();")).toEqual({});
+  });
+
+  it('returns {} for empty string input', () => {
+    expect(extractOnclickParams('')).toEqual({});
   });
 });

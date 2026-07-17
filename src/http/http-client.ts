@@ -57,6 +57,28 @@ export class HttpRequestError extends Error {
   }
 }
 
+// Hallazgo empírico contra el sitio real (Fase 5): el Location de la redirección 302 tras el
+// POST de búsqueda usa http:// (quirk del servidor/proxy real, jurisprudencia.pj.gob.pe), pero
+// el origin real solo acepta HTTPS -- el puerto 80 devuelve connection-refused. axios (vía
+// follow-redirects) NO hace este upgrade por sí solo: hay que forzarlo con el hook
+// beforeRedirect, mutando las opciones de la petición redirigida antes de que se dispare.
+//
+// El upgrade solo se aplica si la petición que originó la redirección ya era https: forzar
+// siempre a https rompería sitios legítimamente http-only. Limitarlo a "nunca degradar una
+// petición que empezó segura" es una política general y correcta (evita downgrade de protocolo
+// vía redirect), no un parche específico del sitio.
+export function upgradeInsecureRedirectProtocol(
+  options: { protocol?: string; port?: string | number },
+  _responseDetails?: unknown,
+  requestDetails?: { url?: string },
+): void {
+  const originWasSecure = requestDetails?.url?.startsWith('https:') ?? false;
+  if (originWasSecure && options.protocol === 'http:') {
+    options.protocol = 'https:';
+    options.port = '';
+  }
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -106,6 +128,7 @@ export class HttpClient {
         jar,
         timeout: options.timeoutMs,
         validateStatus: () => true,
+        beforeRedirect: upgradeInsecureRedirectProtocol,
       } as AxiosRequestConfig),
     );
     this.limiter = createRateLimiter(options.minTimeBetweenRequestsMs);

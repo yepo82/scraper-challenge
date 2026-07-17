@@ -12,6 +12,7 @@ const ENV_KEYS = [
   'MAX_BACKOFF_MS',
   'PDF_CONCURRENCY',
   'LOG_LEVEL',
+  'SEARCH_BUTTON_ID',
 ] as const;
 
 const originalEnv: Record<string, string | undefined> = {};
@@ -68,6 +69,22 @@ describe('appConfig', () => {
     expect(appConfig.maxBackoffMs).toBe(30000);
     expect(appConfig.pdfConcurrency).toBe(4);
     expect(appConfig.logLevel).toBe('debug');
+  });
+
+  it('passes SEARCH_BUTTON_ID through when set', async () => {
+    process.env.SEARCH_BUTTON_ID = 'formBuscador:j_idt31';
+
+    vi.resetModules();
+    const appConfig = await importAppConfig();
+
+    expect(appConfig.searchButtonId).toBe('formBuscador:j_idt31');
+  });
+
+  it('leaves searchButtonId undefined when SEARCH_BUTTON_ID is not set', async () => {
+    vi.resetModules();
+    const appConfig = await importAppConfig();
+
+    expect(appConfig.searchButtonId).toBeUndefined();
   });
 
   it('applies sane defaults when optional vars are not set', async () => {

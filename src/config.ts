@@ -28,6 +28,7 @@ const envSchema = z.object({
   MAX_BACKOFF_MS: z.coerce.number().int().positive().default(60000),
   PDF_CONCURRENCY: z.coerce.number().int().positive().default(1),
   LOG_LEVEL: z.enum(LOG_LEVELS).default('info'),
+  SEARCH_BUTTON_ID: z.string().optional(),
 });
 
 function parseEnv() {
@@ -57,4 +58,5 @@ export const appConfig: AppConfig = {
   maxBackoffMs: parsed.MAX_BACKOFF_MS,
   pdfConcurrency: parsed.PDF_CONCURRENCY,
   logLevel: parsed.LOG_LEVEL,
+  searchButtonId: parsed.SEARCH_BUTTON_ID,
 };

@@ -51,17 +51,30 @@ Ajustá las variables en `.env` según necesites (todas tienen valores por defec
 | `MAX_BACKOFF_MS`      | `60000`                                                                      | Tope máximo en milisegundos para el backoff exponencial de reintentos. |
 | `PDF_CONCURRENCY`     | `1`                                                                          | Cantidad de descargas de PDF en paralelo.                              |
 | `LOG_LEVEL`           | `info`                                                                       | Nivel de log de `pino` (`fatal`/`error`/`warn`/`info`/`debug`/`trace`/`silent`). |
+| `SEARCH_BUTTON_ID`    | _(vacío, opcional)_                                                          | Fuerza un id/name de botón de búsqueda específico en vez de auto-detectarlo vía discovery. Usar solo si `SearchNavigator` elige el botón equivocado. |
 
-## Cómo ejecutar discovery inicial
+## Cómo ejecutar discovery inicial y la búsqueda
 
 Correr `npm run scrape:dry` (o cualquier invocación de `scrape`) ahora ejecuta, además de mostrar
-la configuración efectiva, una pasada de reconocimiento inicial contra el sitio: abre una sesión
-JSF real (bootstrap de `ViewState` + cookies) contra `BASE_URL`, guarda el HTML crudo de la página
-inicial en `output/debug/initial-page.html` y corre un discovery heurístico sobre ese HTML,
-guardando el resultado en `output/debug/discovery-report.json`.
+la configuración efectiva, todo el flujo de reconocimiento + primera búsqueda contra el sitio real:
 
-Este paso corre siempre, incluso en `--dry-run`: acá "dry-run" significa "no hacer scraping ni
-descarga de PDFs real" (funcionalidad de fases posteriores), no "saltear el reconocimiento".
+1. Abre una sesión JSF real (bootstrap de `ViewState` + cookies) contra `BASE_URL`, guarda el HTML
+   crudo de la página inicial en `output/debug/initial-page.html`.
+2. Corre un discovery heurístico sobre ese HTML (form, inputs ocultos, botones candidatos, tablas,
+   paginadores, controles de PDF), guardando el resultado en `output/debug/discovery-report.json`.
+3. Selecciona un botón de búsqueda (por `SEARCH_BUTTON_ID` si está configurado, o automáticamente
+   entre los `candidateSearchButtons` del discovery) y arma el payload `form-urlencoded` (form id +
+   inputs ocultos + `ViewState` + los parámetros embebidos en el `onclick` del botón elegido).
+4. Envía el `POST` al `action` del formulario. **Importante**: contra el sitio real esto **no** es
+   un flujo AJAX/partial-response — es un POST síncrono clásico que responde `302` y redirige a una
+   página de resultados completa (`resultado.xhtml`), que `HttpClient` sigue automáticamente. La
+   respuesta cruda se guarda en `output/debug/search-response.xml` (el nombre es fijo aunque el
+   contenido real sea HTML, no XML) y el HTML "usable" resultante en `output/debug/page-1.html`.
+5. Actualiza el `ViewState` de la sesión con el valor fresco que trae la página de resultados.
+
+Todo esto corre siempre, incluso en `--dry-run`: acá "dry-run" significa "no hacer scraping de
+múltiples páginas ni descarga de PDFs real" (funcionalidad de fases posteriores), no "saltear el
+reconocimiento y la búsqueda inicial".
 
 El reporte de discovery (`SiteDiscoveryReport`) contiene, todo en base a heurísticas best-effort
 que nunca lanzan excepción:
@@ -76,24 +89,51 @@ que nunca lanzan excepción:
 - `candidatePdfControls`: enlaces o controles relacionados con descarga de PDF.
 
 La idea es usar este reporte para identificar los IDs reales que usa el sitio (formularios,
-botones, tablas de resultados, paginación) antes de hardcodear la lógica de navegación real en una
-fase posterior.
+botones, tablas de resultados, paginación) antes de que una búsqueda con criterios reales y el
+parseo de resultados (fases siguientes) dependan de esos IDs.
 
 ## Roadmap de fases
 
-- **Fase 0 — Scaffolding**: ✅ listo. Estructura del proyecto, configuración vía `zod` +
-  `dotenv`, CLI base con `commander` y logger con `pino`.
-- **Fase 1 — Cliente HTTP + cookie jar + bootstrap de sesión**: cliente `axios` con
-  `axios-cookiejar-support` para sostener cookies de sesión y `ViewState` de JSF.
-- **Fase 2 — Navegación de formularios JSF / búsqueda**: construcción y envío de los
-  postbacks de PrimeFaces necesarios para ejecutar búsquedas.
-- **Fase 3 — Parseo de resultados + paginación**: extracción de resultados con `cheerio` y
-  recorrido de páginas.
-- **Fase 4 — Descarga de PDFs con idempotencia**: descarga de documentos evitando
-  reprocesar los ya descargados.
-- **Fase 5 — Persistencia de metadatos (JSON/CSV) + checkpoints**: guardado de metadatos y
-  puntos de reanudación.
-- **Fase 6 — Manejo de 429 con backoff exponencial/jitter + cola de reintentos**: resiliencia
-  ante rate limiting y fallos, con cola de documentos fallidos para reintento.
-- **Fase 7 — Comandos reales del CLI**: implementación completa de `scrape` y `retry-failed`
-  (por ahora son comandos base sin lógica de scraping).
+### Implementadas
+
+- **Fase 0 — Scaffolding**: ✅ estructura del proyecto, configuración vía `zod` + `dotenv`,
+  `package.json`/`tsconfig`/`vitest` y CLI base con `commander`.
+- **Fase 1 — Configuración, CLI y logger**: ✅ `AppConfig` tipado (`src/config.ts`), parseo de
+  argumentos separado en `src/cli/args.ts` (con override de `.env` por flags), logger `pino`
+  (`src/utils/logger.ts`) y `src/index.ts` imprimiendo la configuración efectiva.
+- **Fase 2 — Cliente HTTP robusto**: ✅ `HttpClient` (`src/http/http-client.ts`) con `axios` +
+  `axios-cookiejar-support`/`tough-cookie` (cookie jar de sesión), rate limiting con `bottleneck`
+  (`src/http/rate-limiter.ts`) y política de reintentos con backoff exponencial + jitter +
+  `Retry-After` (`src/http/retry-policy.ts`), lanzando `HttpRequestError` controlado al agotar
+  reintentos.
+- **Fase 3 — Sesión JSF y ViewState**: ✅ `JsfSession` (`src/jsf/jsf-session.ts`) que inicializa la
+  sesión, detecta el form principal y mantiene el `javax.faces.ViewState` actualizado; extracción
+  de ViewState desde HTML y partial-response (`src/jsf/viewstate.ts`), parser de partial-response
+  JSF con `fast-xml-parser` (`src/jsf/partial-response.ts`) y builder de payloads
+  form-urlencoded para postbacks JSF (`src/jsf/payload-builder.ts`).
+- **Fase 4 — Discovery del sitio**: ✅ `discoverSiteStructure()` (`src/scraper/discovery.ts`)
+  detecta heurísticamente form, inputs ocultos, botones candidatos, tablas, paginadores y
+  controles de PDF sin romper si faltan elementos; persistencia de HTML/reporte de debug
+  (`src/storage/file-store.ts`, `src/utils/files.ts`) integrada en `scrape`.
+- **Fase 5 — Búsqueda inicial vía POST JSF**: ✅ `SearchNavigator` (`src/scraper/navigator.ts`)
+  selecciona el botón de búsqueda (`SEARCH_BUTTON_ID` o fallback heurístico sobre el discovery),
+  arma el payload `form-urlencoded` (incluyendo los parámetros embebidos en el `onclick` del botón,
+  vía `extractOnclickParams` en `src/jsf/payload-builder.ts`) y postea al `action` real del
+  formulario. Confirmado contra el sitio real que la búsqueda es un POST/redirect síncrono (no
+  AJAX/partial-response); `HttpClient` sigue el redirect y `JsfSession` actualiza el `ViewState`
+  con el valor fresco de la página de resultados. `Scraper` (`src/scraper/scraper.ts`) orquesta
+  todo el flujo (sesión → discovery → búsqueda), reemplazando la integración temporal de la Fase 4
+  en `src/index.ts` (ver [Cómo ejecutar discovery inicial y la búsqueda](#cómo-ejecutar-discovery-inicial-y-la-búsqueda)).
+
+### Pendientes
+
+- **Búsqueda con criterios reales**: hoy `searchInitial()` postea sin completar campos de
+  búsqueda (nombre, expediente, etc.); falta pasar criterios reales desde CLI/config.
+- **Parseo de resultados + paginación**: extracción de la tabla/listado de resoluciones con
+  `cheerio` y recorrido de páginas de resultados.
+- **Descarga de PDFs con idempotencia**: descarga de documentos evitando reprocesar los ya
+  descargados (verificación de archivo existente/válido).
+- **Persistencia de metadatos (JSON/CSV) + checkpoints**: guardado de metadatos con
+  `csv-stringify` y puntos de reanudación (`--resume`).
+- **Cola de reintentos de documentos fallidos**: registro de documentos fallidos y comando
+  `retry-failed` con lógica real (hoy es un stub).

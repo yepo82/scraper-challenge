@@ -75,6 +75,37 @@ describe('JsfSession', () => {
     expect(() => session.getViewState()).toThrow();
   });
 
+  it('exposes getFormAction() after initialize() resolved to an absolute URL', async () => {
+    const baseUrl = await listen((req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end(pageWithForm(REAL_FORM_HTML));
+    });
+
+    const session = new JsfSession(makeClient(baseUrl), { baseUrl });
+    const state = await session.initialize();
+
+    // state.formAction guarda el atributo `action` crudo, tal cual está en el HTML (útil para
+    // diagnóstico); getFormAction() debe resolverlo a una URL absoluta lista para POSTear.
+    // Motivo (hallazgo empírico contra el sitio real, Fase 5): cuando appConfig.baseUrl ya
+    // incluye un path (no solo el origin) y se le pasa a axios una URL relativa que empieza con
+    // "/", axios NO la trata como "path absoluto reemplazando todo el path de baseURL" —
+    // simplemente concatena baseURL + url, duplicando el path y devolviendo un 500 real.
+    // Pasar siempre una URL absoluta evita por completo la combinación de axios.
+    expect(session.getFormAction()).toBe(new URL(state.formAction, baseUrl).toString());
+    expect(session.getFormAction().startsWith('http')).toBe(true);
+  });
+
+  it('throws when getFormAction() is called before initialize()', async () => {
+    const baseUrl = await listen((req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end(pageWithForm(REAL_FORM_HTML));
+    });
+
+    const session = new JsfSession(makeClient(baseUrl), { baseUrl });
+
+    expect(() => session.getFormAction()).toThrow();
+  });
+
   it('throws when getFormId() is called before initialize()', async () => {
     const baseUrl = await listen((req, res) => {
       res.writeHead(200, { 'Content-Type': 'text/html' });
@@ -131,6 +162,30 @@ describe('JsfSession', () => {
     session.updateFromResponse(pageWithForm(updatedFormHtml));
 
     expect(session.getViewState()).toBe('4125160013028538766:4987307647222301958');
+  });
+
+  it('updateFromResponse() with a full XHTML body prefixed by an <?xml ...?> prolog updates the stored ViewState (not misread as a partial-response)', async () => {
+    // Hallazgo empírico contra el sitio real (Fase 5): inicio.xhtml y resultado.xhtml son XHTML
+    // real y arrancan con `<?xml version="1.0" encoding="UTF-8"?>` antes del <!DOCTYPE html>.
+    // Antes de este fix, updateFromResponse() confundía esto con un partial-response de JSF y
+    // fallaba en extraer el ViewState contra el sitio real.
+    const baseUrl = await listen((req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end(pageWithForm(REAL_FORM_HTML));
+    });
+
+    const session = new JsfSession(makeClient(baseUrl), { baseUrl });
+    await session.initialize();
+
+    const updatedFormHtml = REAL_FORM_HTML.replace(
+      '4125160013028538766:4987307647222301956',
+      '4125160013028538766:4987307647222301959',
+    );
+    const xhtmlWithProlog = `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">\n${pageWithForm(updatedFormHtml)}`;
+
+    session.updateFromResponse(xhtmlWithProlog);
+
+    expect(session.getViewState()).toBe('4125160013028538766:4987307647222301959');
   });
 
   it('updateFromResponse() throws and leaves the previous ViewState intact when nothing extractable is found', async () => {

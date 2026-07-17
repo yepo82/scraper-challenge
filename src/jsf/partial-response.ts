@@ -23,6 +23,20 @@ interface ParsedPartialResponse {
   };
 }
 
+// Hallazgo empírico contra el sitio real (Fase 5): las páginas reales son XHTML y arrancan
+// legítimamente con el prólogo `<?xml version="1.0" encoding="UTF-8"?>` seguido de
+// <!DOCTYPE html ...> y <html>. Chequear solo el prefijo "<?xml" (como hacía la Fase 3) confunde
+// una página XHTML normal con un partial-response real de JSF/RichFaces y rompe la extracción de
+// ViewState contra el sitio real. La señal correcta es la presencia de la etiqueta raíz
+// <partial-response>, con o sin el prólogo XML antes.
+export function isPartialResponseBody(body: string): boolean {
+  if (!body || typeof body !== 'string') {
+    return false;
+  }
+  const trimmed = body.trim();
+  return /^(<\?xml[^>]*\?>\s*)?<partial-response[\s>]/i.test(trimmed);
+}
+
 export function parsePartialResponse(xml: string): { updates: JsfPartialUpdate[]; viewState?: string } {
   if (!xml || typeof xml !== 'string') {
     return { updates: [] };

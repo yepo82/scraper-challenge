@@ -1,6 +1,7 @@
 import type { HttpClient } from '../http/http-client.js';
 import type { JsfInitialState } from '../types.js';
 import { extractViewStateFromHtml, extractViewStateFromPartialResponse } from './viewstate.js';
+import { isPartialResponseBody } from './partial-response.js';
 import * as cheerio from 'cheerio';
 
 export interface JsfSessionConfig {
@@ -75,11 +76,22 @@ export class JsfSession {
     return this.state.formId;
   }
 
-  updateFromResponse(responseBody: string): void {
-    const trimmed = responseBody.trim();
-    const isPartialResponse = trimmed.startsWith('<?xml') || trimmed.startsWith('<partial-response');
+  getFormAction(): string {
+    if (this.state === undefined) {
+      throw new Error('JsfSession.getFormAction() called before initialize(); no form is available yet.');
+    }
+    // Se resuelve a una URL absoluta (no se devuelve el `action` crudo tal cual): hallazgo
+    // empírico contra el sitio real (Fase 5) — cuando config.baseUrl ya incluye un path (no solo
+    // el origin, como es el caso real: .../faces/page/inicio.xhtml) y se le pasa a axios una URL
+    // relativa que arranca con "/", axios no la trata como "path absoluto que reemplaza todo el
+    // path de baseURL": simplemente concatena baseURL + url, duplicando el path y produciendo un
+    // 500 real del servidor. Devolver siempre una URL absoluta evita por completo que axios
+    // combine baseURL con esta URL.
+    return new URL(this.state.formAction, this.config.baseUrl).toString();
+  }
 
-    const nextViewState = isPartialResponse
+  updateFromResponse(responseBody: string): void {
+    const nextViewState = isPartialResponseBody(responseBody)
       ? extractViewStateFromPartialResponse(responseBody)
       : extractViewStateFromHtml(responseBody);
 

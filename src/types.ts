@@ -12,6 +12,7 @@ export interface AppConfig {
   maxBackoffMs: number;
   pdfConcurrency: number;
   logLevel: LogLevel;
+  searchButtonId?: string;
 }
 
 export interface ScrapeCommandOptions {
@@ -81,4 +82,12 @@ export interface SiteDiscoveryReport {
   candidateTables: DiscoveryCandidateTable[];
   candidatePaginators: DiscoveryCandidatePaginator[];
   candidatePdfControls: DiscoveryCandidatePdfControl[];
+}
+
+export interface SearchPageResult {
+  pageNumber: number;
+  html: string;
+  rawResponse: string;
+  viewState: string;
+  discoveredAt: string; // ISO 8601 timestamp
 }

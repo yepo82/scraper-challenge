@@ -1,7 +1,7 @@
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterEach, describe, expect, it } from 'vitest';
-import { HttpClient, HttpRequestError } from '../src/http/http-client.js';
+import { HttpClient, HttpRequestError, upgradeInsecureRedirectProtocol } from '../src/http/http-client.js';
 
 let server: http.Server | undefined;
 
@@ -199,6 +199,44 @@ describe('HttpClient', () => {
     expect(secondRequestCookieHeader).toBe('session=abc123');
   });
 
+  it('follows a 302 redirect transparently and carries the Set-Cookie from the first hop to the redirect target', async () => {
+    let redirectTargetCookieHeader: string | undefined;
+
+    const baseUrl = await listen((req, res) => {
+      if (req.url === '/start') {
+        res.writeHead(302, {
+          'Set-Cookie': 'jsessionid=redirect-test-session',
+          Location: '/resultado',
+        });
+        res.end();
+        return;
+      }
+      if (req.url === '/resultado') {
+        redirectTargetCookieHeader = req.headers.cookie;
+        res.writeHead(200, { 'Content-Type': 'text/plain' });
+        res.end('landed on resultado');
+        return;
+      }
+      res.writeHead(404);
+      res.end();
+    });
+
+    const client = new HttpClient({
+      baseUrl,
+      timeoutMs: 5000,
+      maxRetries: 2,
+      baseDelayMs: 10,
+      maxBackoffMs: 100,
+      minTimeBetweenRequestsMs: 0,
+    });
+
+    const response = await client.get('/start');
+
+    expect(response.status).toBe(200);
+    expect(response.data).toBe('landed on resultado');
+    expect(redirectTargetCookieHeader).toBe('jsessionid=redirect-test-session');
+  });
+
   it('download() returns the exact bytes received from the server', async () => {
     const expectedBytes = Buffer.from([0x25, 0x50, 0x44, 0x46]);
 
@@ -219,5 +257,49 @@ describe('HttpClient', () => {
     const buffer = await client.download('/file.pdf');
 
     expect(Buffer.compare(buffer, expectedBytes)).toBe(0);
+  });
+});
+
+describe('upgradeInsecureRedirectProtocol', () => {
+  // Hallazgo empírico contra el sitio real (Fase 5): el Location de la redirección 302 tras el
+  // POST de búsqueda usa http:// (quirk del servidor/proxy real), pero el origin real solo
+  // acepta HTTPS -- el puerto 80 devuelve connection-refused. axios/follow-redirects NO hace
+  // este upgrade solo: hay que forzarlo vía el hook beforeRedirect de la config de axios.
+  // El upgrade solo se aplica cuando la petición ORIGINAL ya era https: forzar siempre a https
+  // rompería sitios legítimamente http-only (incluido el test de redirect+cookie de este mismo
+  // archivo, que corre contra un server de prueba en http plano); limitarlo a "nunca degradar
+  // una petición que empezó segura" es la política correcta y de alcance acotado.
+  it('rewrites the protocol to https: and clears the port when the originating request was https', () => {
+    const options: { protocol?: string; port?: string | number } = { protocol: 'http:', port: 80 };
+
+    upgradeInsecureRedirectProtocol(options, undefined, { url: 'https://jurisprudencia.pj.gob.pe/x' });
+
+    expect(options.protocol).toBe('https:');
+    expect(options.port).toBe('');
+  });
+
+  it('leaves the redirect target untouched when the originating request was already http', () => {
+    const options: { protocol?: string; port?: string | number } = { protocol: 'http:', port: 80 };
+
+    upgradeInsecureRedirectProtocol(options, undefined, { url: 'http://127.0.0.1:1234/x' });
+
+    expect(options.protocol).toBe('http:');
+    expect(options.port).toBe(80);
+  });
+
+  it('leaves an already-https redirect target untouched', () => {
+    const options: { protocol?: string; port?: string | number } = { protocol: 'https:', port: 443 };
+
+    upgradeInsecureRedirectProtocol(options, undefined, { url: 'https://jurisprudencia.pj.gob.pe/x' });
+
+    expect(options.protocol).toBe('https:');
+    expect(options.port).toBe(443);
+  });
+
+  it('leaves options without a protocol field untouched and does not throw when requestDetails is missing', () => {
+    const options: { protocol?: string; port?: string | number } = {};
+
+    expect(() => upgradeInsecureRedirectProtocol(options)).not.toThrow();
+    expect(options.protocol).toBeUndefined();
   });
 });

@@ -2,9 +2,7 @@ import { appConfig } from './config.js';
 import { logger } from './utils/logger.js';
 import { parseCliArgs } from './cli/args.js';
 import { HttpClient } from './http/http-client.js';
-import { JsfSession } from './jsf/jsf-session.js';
-import { discoverSiteStructure } from './scraper/discovery.js';
-import { saveInitialPageHtml, saveDiscoveryReport } from './storage/file-store.js';
+import { Scraper } from './scraper/scraper.js';
 
 async function main(): Promise<void> {
   const invocation = parseCliArgs(process.argv, appConfig);
@@ -14,9 +12,6 @@ async function main(): Promise<void> {
     logger.info('Scraper iniciado');
     logger.info(effectiveConfig, 'Configuración efectiva');
 
-    // El discovery de reconocimiento corre siempre, incluso en --dry-run: dry-run acá
-    // significa "no hacer scraping/descarga real de múltiples páginas" (que todavía no existe),
-    // no "saltear el reconocimiento inicial".
     const httpClient = new HttpClient({
       baseUrl: appConfig.baseUrl,
       timeoutMs: appConfig.requestTimeoutMs,
@@ -27,27 +22,8 @@ async function main(): Promise<void> {
       // como decisión deliberada y diferida hasta que haga falta un valor propio.
       minTimeBetweenRequestsMs: appConfig.baseDelayMs,
     });
-    const session = new JsfSession(httpClient, { baseUrl: appConfig.baseUrl });
-    const initialState = await session.initialize();
-
-    const initialPagePath = await saveInitialPageHtml(appConfig.outputDir, initialState.html);
-    logger.info({ path: initialPagePath }, 'Página inicial guardada');
-
-    const discoveryReport = discoverSiteStructure(initialState.html);
-    const discoveryReportPath = await saveDiscoveryReport(appConfig.outputDir, discoveryReport);
-    logger.info({ path: discoveryReportPath }, 'Reporte de discovery guardado');
-
-    logger.info(
-      {
-        formId: discoveryReport.formId,
-        hiddenInputCount: Object.keys(discoveryReport.hiddenInputs).length,
-        searchButtonCount: discoveryReport.candidateSearchButtons.length,
-        tableCount: discoveryReport.candidateTables.length,
-        paginatorCount: discoveryReport.candidatePaginators.length,
-        pdfControlCount: discoveryReport.candidatePdfControls.length,
-      },
-      'Resumen de discovery',
-    );
+    const scraper = new Scraper(httpClient, appConfig);
+    await scraper.run(invocation.options);
   } else {
     logger.info('Reintento de documentos fallidos iniciado');
     if (invocation.options.limit !== undefined) {
