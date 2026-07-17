@@ -33,12 +33,12 @@ afterEach(() => {
   }
 });
 
-async function importEnv() {
+async function importAppConfig() {
   const mod = await import('../src/config.js');
-  return mod.env;
+  return mod.appConfig;
 }
 
-describe('env', () => {
+describe('appConfig', () => {
   it('parses a fully specified valid environment with correct types', async () => {
     process.env.BASE_URL = 'https://example.test/page';
     process.env.OUTPUT_DIR = './custom-output';
@@ -53,67 +53,67 @@ describe('env', () => {
     process.env.LOG_LEVEL = 'debug';
 
     vi.resetModules();
-    const env = await importEnv();
+    const appConfig = await importAppConfig();
 
-    expect(env.BASE_URL).toBe('https://example.test/page');
-    expect(env.OUTPUT_DIR).toBe('./custom-output');
-    expect(env.MAX_PAGES).toBe(10);
-    expect(typeof env.MAX_PAGES).toBe('number');
-    expect(env.MAX_DOCUMENTS).toBe(100);
-    expect(env.DOWNLOAD_PDFS).toBe(false);
-    expect(typeof env.DOWNLOAD_PDFS).toBe('boolean');
-    expect(env.REQUEST_TIMEOUT_MS).toBe(15000);
-    expect(env.BASE_DELAY_MS).toBe(2000);
-    expect(env.MAX_RETRIES).toBe(7);
-    expect(env.MAX_BACKOFF_MS).toBe(30000);
-    expect(env.PDF_CONCURRENCY).toBe(4);
-    expect(env.LOG_LEVEL).toBe('debug');
+    expect(appConfig.baseUrl).toBe('https://example.test/page');
+    expect(appConfig.outputDir).toBe('./custom-output');
+    expect(appConfig.maxPages).toBe(10);
+    expect(typeof appConfig.maxPages).toBe('number');
+    expect(appConfig.maxDocuments).toBe(100);
+    expect(appConfig.downloadPdfs).toBe(false);
+    expect(typeof appConfig.downloadPdfs).toBe('boolean');
+    expect(appConfig.requestTimeoutMs).toBe(15000);
+    expect(appConfig.baseDelayMs).toBe(2000);
+    expect(appConfig.maxRetries).toBe(7);
+    expect(appConfig.maxBackoffMs).toBe(30000);
+    expect(appConfig.pdfConcurrency).toBe(4);
+    expect(appConfig.logLevel).toBe('debug');
   });
 
   it('applies sane defaults when optional vars are not set', async () => {
     vi.resetModules();
-    const env = await importEnv();
+    const appConfig = await importAppConfig();
 
-    expect(env.BASE_URL).toBe(
+    expect(appConfig.baseUrl).toBe(
       'https://jurisprudencia.pj.gob.pe/jurisprudenciaweb/faces/page/inicio.xhtml',
     );
-    expect(env.OUTPUT_DIR).toBe('output');
-    expect(env.MAX_PAGES).toBe(3);
-    expect(env.MAX_DOCUMENTS).toBe(30);
-    expect(env.DOWNLOAD_PDFS).toBe(true);
-    expect(env.REQUEST_TIMEOUT_MS).toBe(30000);
-    expect(env.BASE_DELAY_MS).toBe(1500);
-    expect(env.MAX_RETRIES).toBe(5);
-    expect(env.MAX_BACKOFF_MS).toBe(60000);
-    expect(env.PDF_CONCURRENCY).toBe(1);
-    expect(env.LOG_LEVEL).toBe('info');
+    expect(appConfig.outputDir).toBe('output');
+    expect(appConfig.maxPages).toBe(3);
+    expect(appConfig.maxDocuments).toBe(30);
+    expect(appConfig.downloadPdfs).toBe(true);
+    expect(appConfig.requestTimeoutMs).toBe(30000);
+    expect(appConfig.baseDelayMs).toBe(1500);
+    expect(appConfig.maxRetries).toBe(5);
+    expect(appConfig.maxBackoffMs).toBe(60000);
+    expect(appConfig.pdfConcurrency).toBe(1);
+    expect(appConfig.logLevel).toBe('info');
   });
 
   it('throws a clear error when LOG_LEVEL is invalid', async () => {
     process.env.LOG_LEVEL = 'not-a-level';
 
     vi.resetModules();
-    await expect(importEnv()).rejects.toThrow(/LOG_LEVEL/);
+    await expect(importAppConfig()).rejects.toThrow(/LOG_LEVEL/);
   });
 
   it('throws a clear error when MAX_PAGES is not numeric', async () => {
     process.env.MAX_PAGES = 'not-a-number';
 
     vi.resetModules();
-    await expect(importEnv()).rejects.toThrow(/MAX_PAGES/);
+    await expect(importAppConfig()).rejects.toThrow(/MAX_PAGES/);
   });
 
   it('throws a clear error when DOWNLOAD_PDFS is not a valid boolean literal', async () => {
     process.env.DOWNLOAD_PDFS = 'maybe';
 
     vi.resetModules();
-    await expect(importEnv()).rejects.toThrow(/DOWNLOAD_PDFS/);
+    await expect(importAppConfig()).rejects.toThrow(/DOWNLOAD_PDFS/);
   });
 
   it('throws a clear error when BASE_URL is not a valid URL', async () => {
     process.env.BASE_URL = 'not-a-url';
 
     vi.resetModules();
-    await expect(importEnv()).rejects.toThrow(/BASE_URL/);
+    await expect(importAppConfig()).rejects.toThrow(/BASE_URL/);
   });
 });

@@ -9,8 +9,8 @@ describe('logger', () => {
     expect(typeof logger.debug).toBe('function');
   });
 
-  it('is configured with the log level from env', async () => {
-    const { env } = await import('../../src/config.js');
-    expect(logger.level).toBe(env.LOG_LEVEL);
+  it('is configured with the log level from appConfig', async () => {
+    const { appConfig } = await import('../../src/config.js');
+    expect(logger.level).toBe(appConfig.logLevel);
   });
 });

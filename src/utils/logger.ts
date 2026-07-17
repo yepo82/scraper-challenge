@@ -1,10 +1,10 @@
 import pino from 'pino';
-import { env } from '../config.js';
+import { appConfig } from '../config.js';
 
 const isProduction = process.env.NODE_ENV === 'production';
 
 export const logger = pino({
-  level: env.LOG_LEVEL,
+  level: appConfig.logLevel,
   transport: isProduction
     ? undefined
     : {

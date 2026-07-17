@@ -1,5 +1,6 @@
 import { config as loadDotenv } from 'dotenv';
 import { z } from 'zod';
+import type { AppConfig } from './types.js';
 
 loadDotenv();
 
@@ -42,5 +43,18 @@ function parseEnv() {
   return result.data;
 }
 
-export const env = parseEnv();
-export type Env = typeof env;
+const parsed = parseEnv();
+
+export const appConfig: AppConfig = {
+  baseUrl: parsed.BASE_URL,
+  outputDir: parsed.OUTPUT_DIR,
+  maxPages: parsed.MAX_PAGES,
+  maxDocuments: parsed.MAX_DOCUMENTS,
+  downloadPdfs: parsed.DOWNLOAD_PDFS,
+  requestTimeoutMs: parsed.REQUEST_TIMEOUT_MS,
+  baseDelayMs: parsed.BASE_DELAY_MS,
+  maxRetries: parsed.MAX_RETRIES,
+  maxBackoffMs: parsed.MAX_BACKOFF_MS,
+  pdfConcurrency: parsed.PDF_CONCURRENCY,
+  logLevel: parsed.LOG_LEVEL,
+};
