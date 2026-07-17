@@ -52,6 +52,33 @@ Ajustá las variables en `.env` según necesites (todas tienen valores por defec
 | `PDF_CONCURRENCY`     | `1`                                                                          | Cantidad de descargas de PDF en paralelo.                              |
 | `LOG_LEVEL`           | `info`                                                                       | Nivel de log de `pino` (`fatal`/`error`/`warn`/`info`/`debug`/`trace`/`silent`). |
 
+## Cómo ejecutar discovery inicial
+
+Correr `npm run scrape:dry` (o cualquier invocación de `scrape`) ahora ejecuta, además de mostrar
+la configuración efectiva, una pasada de reconocimiento inicial contra el sitio: abre una sesión
+JSF real (bootstrap de `ViewState` + cookies) contra `BASE_URL`, guarda el HTML crudo de la página
+inicial en `output/debug/initial-page.html` y corre un discovery heurístico sobre ese HTML,
+guardando el resultado en `output/debug/discovery-report.json`.
+
+Este paso corre siempre, incluso en `--dry-run`: acá "dry-run" significa "no hacer scraping ni
+descarga de PDFs real" (funcionalidad de fases posteriores), no "saltear el reconocimiento".
+
+El reporte de discovery (`SiteDiscoveryReport`) contiene, todo en base a heurísticas best-effort
+que nunca lanzan excepción:
+
+- `formId` / `hiddenInputs`: el formulario principal detectado (mismo criterio que
+  `JsfSession.initialize()`) y sus campos ocultos.
+- `candidateSearchButtons`: botones/disparadores de acción (`button`, `input[type=submit|button|image]`,
+  o `<a>` con `onclick` de JSF/RichFaces/PrimeFaces/ajax).
+- `candidateTables`: tablas de la página, con sus encabezados (`th`) y cantidad de filas.
+- `candidatePaginators`: elementos cuyo `class`/`id` sugiere un paginador (RichFaces `rf-ds`/`rf-dp`,
+  PrimeFaces `ui-paginator`, o cualquier variante de "pag").
+- `candidatePdfControls`: enlaces o controles relacionados con descarga de PDF.
+
+La idea es usar este reporte para identificar los IDs reales que usa el sitio (formularios,
+botones, tablas de resultados, paginación) antes de hardcodear la lógica de navegación real en una
+fase posterior.
+
 ## Roadmap de fases
 
 - **Fase 0 — Scaffolding**: ✅ listo. Estructura del proyecto, configuración vía `zod` +

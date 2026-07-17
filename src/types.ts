@@ -48,3 +48,37 @@ export interface JsfPayloadOptions {
     render?: string;
   };
 }
+
+export interface DiscoveryCandidateButton {
+  id?: string;
+  name?: string;
+  text?: string;
+  onclick?: string;
+}
+
+export interface DiscoveryCandidateTable {
+  id?: string;
+  headers: string[];
+  rowCount: number;
+}
+
+export interface DiscoveryCandidatePaginator {
+  id?: string;
+  text?: string;
+}
+
+export interface DiscoveryCandidatePdfControl {
+  id?: string;
+  href?: string;
+  text?: string;
+  onclick?: string;
+}
+
+export interface SiteDiscoveryReport {
+  formId: string | null;
+  hiddenInputs: Record<string, string>;
+  candidateSearchButtons: DiscoveryCandidateButton[];
+  candidateTables: DiscoveryCandidateTable[];
+  candidatePaginators: DiscoveryCandidatePaginator[];
+  candidatePdfControls: DiscoveryCandidatePdfControl[];
+}
