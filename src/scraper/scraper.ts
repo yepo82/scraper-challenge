@@ -3,7 +3,9 @@ import type { HttpClient } from '../http/http-client.js';
 import { JsfSession } from '../jsf/jsf-session.js';
 import { discoverSiteStructure } from './discovery.js';
 import { SearchNavigator } from './navigator.js';
+import { parseDocumentsFromResultsHtml } from './parser.js';
 import { saveInitialPageHtml, saveDiscoveryReport } from '../storage/file-store.js';
+import { saveDocuments } from '../storage/document-store.js';
 import { logger } from '../utils/logger.js';
 
 export class Scraper {
@@ -62,5 +64,11 @@ export class Scraper {
       },
       'Búsqueda inicial completada',
     );
+
+    const documents = parseDocumentsFromResultsHtml(searchResult.html, {
+      pageNumber: searchResult.pageNumber,
+    });
+    const { jsonPath, csvPath } = await saveDocuments(this.appConfig.outputDir, documents);
+    logger.info({ jsonPath, csvPath, documentCount: documents.length }, 'Documentos guardados');
   }
 }

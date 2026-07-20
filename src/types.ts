@@ -91,3 +91,22 @@ export interface SearchPageResult {
   viewState: string;
   discoveredAt: string; // ISO 8601 timestamp
 }
+
+export interface DocumentRecord {
+  id: string;
+  pageNumber: number;
+  rowNumber: number;
+  title?: string;
+  expediente?: string;
+  sala?: string;
+  materia?: string;
+  fecha?: string;
+  tipoResolucion?: string;
+  sumilla?: string;
+  rawFields: Record<string, string>;
+  pdfUrl?: string;
+  pdfActionId?: string;
+  pdfFilename: string;
+  pdfStatus: 'pending' | 'downloaded' | 'failed' | 'skipped';
+  scrapedAt: string; // ISO 8601
+}
