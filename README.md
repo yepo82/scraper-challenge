@@ -52,6 +52,9 @@ Ajustá las variables en `.env` según necesites (todas tienen valores por defec
 | `PDF_CONCURRENCY`     | `1`                                                                          | Cantidad de descargas de PDF en paralelo.                              |
 | `LOG_LEVEL`           | `info`                                                                       | Nivel de log de `pino` (`fatal`/`error`/`warn`/`info`/`debug`/`trace`/`silent`). |
 | `SEARCH_BUTTON_ID`    | _(vacío, opcional)_                                                          | Fuerza un id/name de botón de búsqueda específico en vez de auto-detectarlo vía discovery. Usar solo si `SearchNavigator` elige el botón equivocado. |
+| `RESULTS_TABLE_ID`    | _(vacío, opcional; default efectivo `formBuscador:panel`)_                   | Fuerza el id del contenedor de resultados en vez del default confirmado contra el sitio real. |
+| `PAGINATOR_ID`        | _(vacío, opcional)_                                                          | Fuerza el id del paginador RichFaces (`span.rf-ds`) en vez de auto-detectarlo. Usar solo si `detectPaginator` elige el paginador equivocado o hay más de uno en la página. |
+| `PAGE_SIZE`           | _(vacío, opcional)_                                                          | Validado y disponible para uso futuro; **todavía no está conectado** al payload real de búsqueda (ver [Roadmap de fases](#roadmap-de-fases)). |
 
 ## Cómo ejecutar discovery inicial y la búsqueda
 
@@ -124,16 +127,37 @@ parseo de resultados (fases siguientes) dependan de esos IDs.
   con el valor fresco de la página de resultados. `Scraper` (`src/scraper/scraper.ts`) orquesta
   todo el flujo (sesión → discovery → búsqueda), reemplazando la integración temporal de la Fase 4
   en `src/index.ts` (ver [Cómo ejecutar discovery inicial y la búsqueda](#cómo-ejecutar-discovery-inicial-y-la-búsqueda)).
+- **Fase 6 — Parseo de resultados**: ✅ `parseDocumentsFromResultsHtml()` (`src/scraper/parser.ts`)
+  extrae los documentos reales de la página de resultados (paneles RichFaces `div.rf-p`, no una
+  `<table>` clásica), generando id determinístico y nombre de PDF por documento
+  (`src/utils/filenames.ts`) y persistencia en JSON/CSV (`src/storage/document-store.ts`).
+- **Fase 7 — Paginación JSF**: ✅ `detectPaginator()` (`src/scraper/pagination.ts`) analiza el
+  markup real del paginador RichFaces DataScroller (`span.rf-ds`, ids `<paginatorId>_ds_<N>`,
+  controles `_ds_next`/`_ds_l`) sin hacer I/O, con auto-detección o id forzado vía
+  `PAGINATOR_ID`. `SearchNavigator.getNextPage()` (`src/scraper/navigator.ts`) dispara el AJAX
+  real de RichFaces (`javax.faces.partial.ajax=true`, a diferencia del POST/redirect síncrono de
+  `searchInitial()` — ver Fase 5), reutilizando el mismo manejo dual HTML/partial-response-XML.
+  `Scraper.run()` (`src/scraper/scraper.ts`) implementa el loop de paginación completo con
+  deduplicación por `Set` en memoria (sembrado desde `documents.json` de corridas previas para
+  soportar re-scrape incremental) y se detiene ante la primera de: `maxPages` alcanzado,
+  `maxDocuments` alcanzado, sin página siguiente, página sin documentos, página 100% duplicada, o
+  error HTTP no recuperable (sin relanzar, preservando el progreso ya guardado). Nuevas variables
+  `RESULTS_TABLE_ID`/`PAGINATOR_ID`/`PAGE_SIZE` (ver tabla de variables de entorno);
+  **`PAGE_SIZE` está validado pero todavía no conectado al payload real** — el tamaño de página
+  real viaja como un parámetro de `onclick` con clave JSF autogenerada e inestable, y no hay hoy
+  forma confiable de identificar cuál sin una investigación puntual futura.
 
 ### Pendientes
 
 - **Búsqueda con criterios reales**: hoy `searchInitial()` postea sin completar campos de
   búsqueda (nombre, expediente, etc.); falta pasar criterios reales desde CLI/config.
-- **Parseo de resultados + paginación**: extracción de la tabla/listado de resoluciones con
-  `cheerio` y recorrido de páginas de resultados.
 - **Descarga de PDFs con idempotencia**: descarga de documentos evitando reprocesar los ya
   descargados (verificación de archivo existente/válido).
-- **Persistencia de metadatos (JSON/CSV) + checkpoints**: guardado de metadatos con
-  `csv-stringify` y puntos de reanudación (`--resume`).
+- **Checkpoints de reanudación real** (`--resume`): hoy el flag existe en el CLI pero no cambia
+  el comportamiento; la deduplicación por `documents.json` ya sembrada en el `Set` en memoria es
+  un primer paso, falta un checkpoint explícito de "página en la que quedó" por corrida.
 - **Cola de reintentos de documentos fallidos**: registro de documentos fallidos y comando
   `retry-failed` con lógica real (hoy es un stub).
+- **Resolver a qué parámetro JSF corresponde `PAGE_SIZE` realmente**: requiere inspeccionar el
+  onclick del botón de búsqueda contra el sitio real para identificar la key estable (o confirmar
+  que no la hay y que hace falta otra estrategia).

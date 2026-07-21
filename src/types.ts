@@ -13,6 +13,16 @@ export interface AppConfig {
   pdfConcurrency: number;
   logLevel: LogLevel;
   searchButtonId?: string;
+  resultsTableId?: string;
+  paginatorId?: string;
+  // Validado y disponible para uso futuro: hoy NO está conectado al payload real de búsqueda.
+  // El "tamaño de página" real (empíricamente 21) viaja como uno de los params extraídos del
+  // onclick del botón de búsqueda (extractOnclickParams), bajo una key JSF autogenerada e
+  // inestable (ej. "formBuscador:j_idt34"), no una key semántica estable como "pageSize". No hay
+  // hoy forma confiable de identificar cuál de esas keys corresponde al tamaño de página para
+  // sobreescribirla genéricamente; hacerlo a ciegas sería frágil. Queda como deuda de
+  // investigación puntual para una fase futura.
+  pageSize?: number;
 }
 
 export interface ScrapeCommandOptions {

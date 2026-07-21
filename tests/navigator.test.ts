@@ -9,7 +9,7 @@ import { HttpClient } from '../src/http/http-client.js';
 import { JsfSession } from '../src/jsf/jsf-session.js';
 import { discoverSiteStructure } from '../src/scraper/discovery.js';
 import { SearchNavigator } from '../src/scraper/navigator.js';
-import type { SiteDiscoveryReport } from '../src/types.js';
+import type { SearchPageResult, SiteDiscoveryReport } from '../src/types.js';
 
 let server: http.Server | undefined;
 let testDir: string | undefined;
@@ -403,5 +403,266 @@ describe('SearchNavigator.searchInitial()', () => {
     const navigator = new SearchNavigator(session, httpClient, { outputDir }, discoveryReport);
 
     await expect(navigator.searchInitial()).rejects.toThrow(/SEARCH_BUTTON_ID/);
+  });
+});
+
+// Markup real del paginador RichFaces DataScroller (ver Fase 7 / tests/pagination.test.ts),
+// parametrizado por paginatorId para poder construir fixtures con ids distintos.
+function paginatorHtml(paginatorId: string, options: { hasNext?: boolean } = {}): string {
+  const hasNext = options.hasNext ?? true;
+  const nextLink = hasNext
+    ? `<a class="rf-ds-btn rf-ds-btn-next" href="javascript:void(0);" id="${paginatorId}_ds_next">»</a>`
+    : '';
+  return `<span class="rf-ds " id="${paginatorId}"><span class="rf-ds-nmb-btn rf-ds-act " id="${paginatorId}_ds_1">1</span><a class="rf-ds-nmb-btn " id="${paginatorId}_ds_2">2</a><a class="rf-ds-nmb-btn " id="${paginatorId}_ds_3">3</a>${nextLink}</span>`;
+}
+
+function pageOneHtmlWithPaginator(paginatorId: string, options: { hasNext?: boolean } = {}): string {
+  return `<!DOCTYPE html><html><body>
+<div id="formBuscador:panel">
+<div class="rf-p" id="formBuscador:panel:repeat:0:abc">documento página 1</div>
+</div>
+<div class="col-md-12">${paginatorHtml(paginatorId, options)}</div>
+</body></html>`;
+}
+
+function makeCurrentPage(overrides: Partial<SearchPageResult> = {}): SearchPageResult {
+  return {
+    pageNumber: 1,
+    html: pageOneHtmlWithPaginator('formBuscador:data1'),
+    rawResponse: '<html></html>',
+    viewState: 'VS-RESULT',
+    discoveredAt: new Date().toISOString(),
+    ...overrides,
+  };
+}
+
+interface PaginationServerState {
+  requestCount: number;
+  capturedBody?: string;
+}
+
+function startPaginationServer(partialResponseXml: string): Promise<{ baseUrl: string; state: PaginationServerState }> {
+  const state: PaginationServerState = { requestCount: 0 };
+
+  return listen((req, res) => {
+    if (req.method === 'GET' && req.url === '/') {
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end(initialFormHtml('VS-INITIAL'));
+      return;
+    }
+    if (req.method === 'POST' && req.url === '/') {
+      state.requestCount += 1;
+      readBody(req)
+        .then((body) => {
+          state.capturedBody = body;
+          res.writeHead(200, { 'Content-Type': 'text/xml' });
+          res.end(partialResponseXml);
+        })
+        .catch(() => {
+          res.writeHead(500);
+          res.end();
+        });
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  }).then((baseUrl) => ({ baseUrl, state }));
+}
+
+function buildPartialResponseXml(options: {
+  renderId: string;
+  panelContent: string;
+  viewState: string;
+}): string {
+  return `<?xml version='1.0' encoding='UTF-8'?><partial-response><changes><update id="${options.renderId}"><![CDATA[${options.panelContent}]]></update><update id="javax.faces.ViewState"><![CDATA[${options.viewState}]]></update></changes></partial-response>`;
+}
+
+describe('SearchNavigator.getNextPage()', () => {
+  it('posts a JSF AJAX request and returns a SearchPageResult with incremented pageNumber, fresh ViewState and html from the partial-response', async () => {
+    const xml = buildPartialResponseXml({
+      renderId: 'formBuscador:panel',
+      panelContent: '<div class="rf-p" id="formBuscador:panel:repeat:0:xyz">documento página 2</div>',
+      viewState: 'VS-PAGE-2',
+    });
+    const { baseUrl, state } = await startPaginationServer(xml);
+    const httpClient = makeClient(baseUrl);
+    const { session } = await buildInitializedSession(baseUrl);
+    const outputDir = makeTestDir();
+
+    const navigator = new SearchNavigator(session, httpClient, { outputDir }, {
+      formId: 'formBuscador',
+      hiddenInputs: {},
+      candidateSearchButtons: [],
+      candidateTables: [],
+      candidatePaginators: [],
+      candidatePdfControls: [],
+    });
+
+    const currentPage = makeCurrentPage();
+    const result = await navigator.getNextPage(currentPage);
+
+    expect(result).not.toBeNull();
+    expect(result?.pageNumber).toBe(2);
+    expect(result?.viewState).toBe('VS-PAGE-2');
+    expect(result?.html).toContain('documento página 2');
+    expect(state.requestCount).toBe(1);
+  });
+
+  it('POST body contains javax.faces.partial.ajax=true, the correct source, and the <paginatorId>:page param', async () => {
+    const xml = buildPartialResponseXml({
+      renderId: 'formBuscador:panel',
+      panelContent: '<div>página 2</div>',
+      viewState: 'VS-PAGE-2',
+    });
+    const { baseUrl, state } = await startPaginationServer(xml);
+    const httpClient = makeClient(baseUrl);
+    const { session } = await buildInitializedSession(baseUrl);
+    const outputDir = makeTestDir();
+
+    const navigator = new SearchNavigator(session, httpClient, { outputDir }, {
+      formId: 'formBuscador',
+      hiddenInputs: {},
+      candidateSearchButtons: [],
+      candidateTables: [],
+      candidatePaginators: [],
+      candidatePdfControls: [],
+    });
+
+    await navigator.getNextPage(makeCurrentPage());
+
+    const posted = new URLSearchParams(state.capturedBody);
+    expect(posted.get('javax.faces.partial.ajax')).toBe('true');
+    expect(posted.get('javax.faces.source')).toBe('formBuscador:data1');
+    expect(posted.get('formBuscador:data1:page')).toBe('2');
+  });
+
+  it('returns null and makes no request when currentPage.html has no paginator at all', async () => {
+    const xml = buildPartialResponseXml({
+      renderId: 'formBuscador:panel',
+      panelContent: '<div>no debería llegar acá</div>',
+      viewState: 'VS-PAGE-2',
+    });
+    const { baseUrl, state } = await startPaginationServer(xml);
+    const httpClient = makeClient(baseUrl);
+    const { session } = await buildInitializedSession(baseUrl);
+    const outputDir = makeTestDir();
+
+    const navigator = new SearchNavigator(session, httpClient, { outputDir }, {
+      formId: 'formBuscador',
+      hiddenInputs: {},
+      candidateSearchButtons: [],
+      candidateTables: [],
+      candidatePaginators: [],
+      candidatePdfControls: [],
+    });
+
+    const currentPage = makeCurrentPage({ html: '<html><body><div id="formBuscador:panel">sin paginador</div></body></html>' });
+    const result = await navigator.getNextPage(currentPage);
+
+    expect(result).toBeNull();
+    expect(state.requestCount).toBe(0);
+  });
+
+  it('returns null and makes no request when the next page is not in availablePages and hasMorePages is false', async () => {
+    const xml = buildPartialResponseXml({
+      renderId: 'formBuscador:panel',
+      panelContent: '<div>no debería llegar acá</div>',
+      viewState: 'VS-PAGE-2',
+    });
+    const { baseUrl, state } = await startPaginationServer(xml);
+    const httpClient = makeClient(baseUrl);
+    const { session } = await buildInitializedSession(baseUrl);
+    const outputDir = makeTestDir();
+
+    const navigator = new SearchNavigator(session, httpClient, { outputDir }, {
+      formId: 'formBuscador',
+      hiddenInputs: {},
+      candidateSearchButtons: [],
+      candidateTables: [],
+      candidatePaginators: [],
+      candidatePdfControls: [],
+    });
+
+    // pageNumber 3 con solo 3 páginas listadas y sin next/last: la página 4 no existe.
+    const currentPage = makeCurrentPage({
+      pageNumber: 3,
+      html: pageOneHtmlWithPaginator('formBuscador:data1', { hasNext: false }),
+    });
+    const result = await navigator.getNextPage(currentPage);
+
+    expect(result).toBeNull();
+    expect(state.requestCount).toBe(0);
+  });
+
+  it('PAGINATOR_ID/RESULTS_TABLE_ID overrides take precedence over auto-detection', async () => {
+    const xml = buildPartialResponseXml({
+      renderId: 'formBuscador:customPanel',
+      panelContent: '<div>página 2 vía override</div>',
+      viewState: 'VS-PAGE-2',
+    });
+    const { baseUrl, state } = await startPaginationServer(xml);
+    const httpClient = makeClient(baseUrl);
+    const { session } = await buildInitializedSession(baseUrl);
+    const outputDir = makeTestDir();
+
+    const navigator = new SearchNavigator(
+      session,
+      httpClient,
+      { outputDir, paginatorId: 'formBuscador:data2', resultsTableId: 'formBuscador:customPanel' },
+      {
+        formId: 'formBuscador',
+        hiddenInputs: {},
+        candidateSearchButtons: [],
+        candidateTables: [],
+        candidatePaginators: [],
+        candidatePdfControls: [],
+      },
+    );
+
+    // Fixture con dos paginadores distintos: la auto-detección elegiría "data1" (primero en el
+    // documento); el override debe forzar "data2" igual.
+    const currentPage = makeCurrentPage({
+      html: `<!DOCTYPE html><html><body>
+<div class="col-md-12">${paginatorHtml('formBuscador:data1')}</div>
+<div class="col-md-12">${paginatorHtml('formBuscador:data2')}</div>
+</body></html>`,
+    });
+
+    await navigator.getNextPage(currentPage);
+
+    const posted = new URLSearchParams(state.capturedBody);
+    expect(posted.get('javax.faces.source')).toBe('formBuscador:data2');
+    expect(posted.get('javax.faces.partial.render')).toBe('formBuscador:customPanel formBuscador:data2');
+    expect(posted.get('formBuscador:data2:page')).toBe('2');
+    expect(posted.has('formBuscador:data1:page')).toBe(false);
+  });
+
+  it('saves output/debug/page-2.html with the extracted html content', async () => {
+    const xml = buildPartialResponseXml({
+      renderId: 'formBuscador:panel',
+      panelContent: '<div>contenido guardado de la página 2</div>',
+      viewState: 'VS-PAGE-2',
+    });
+    const { baseUrl } = await startPaginationServer(xml);
+    const httpClient = makeClient(baseUrl);
+    const { session } = await buildInitializedSession(baseUrl);
+    const outputDir = makeTestDir();
+
+    const navigator = new SearchNavigator(session, httpClient, { outputDir }, {
+      formId: 'formBuscador',
+      hiddenInputs: {},
+      candidateSearchButtons: [],
+      candidateTables: [],
+      candidatePaginators: [],
+      candidatePdfControls: [],
+    });
+
+    const result = await navigator.getNextPage(makeCurrentPage());
+
+    const pageHtmlPath = path.join(outputDir, 'debug', 'page-2.html');
+    const savedPage = await fs.readFile(pageHtmlPath, 'utf-8');
+
+    expect(savedPage).toBe(result?.html);
+    expect(savedPage).toContain('contenido guardado de la página 2');
   });
 });

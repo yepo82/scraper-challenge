@@ -6,11 +6,16 @@ import type { DiscoveryCandidateButton, SearchPageResult, SiteDiscoveryReport } 
 import { savePageHtml, saveSearchResponse } from '../storage/file-store.js';
 import { logger } from '../utils/logger.js';
 import { discoverSiteStructure } from './discovery.js';
+import { detectPaginator } from './pagination.js';
 
 export interface SearchNavigatorConfig {
   outputDir: string;
   searchButtonId?: string;
+  resultsTableId?: string;
+  paginatorId?: string;
 }
+
+const DEFAULT_RESULTS_TABLE_ID = 'formBuscador:panel';
 
 function matchesJsfcljsForward(button: DiscoveryCandidateButton): boolean {
   const onclick = button.onclick?.toLowerCase() ?? '';
@@ -92,6 +97,65 @@ export class SearchNavigator {
 
     return {
       pageNumber: 1,
+      html,
+      rawResponse: response.data,
+      viewState,
+      discoveredAt: new Date().toISOString(),
+    };
+  }
+
+  /**
+   * Pide la siguiente página de resultados vía el AJAX real de RichFaces DataScroller (a
+   * diferencia de searchInitial(), que es un POST/redirect síncrono clásico — ver Fase 5). No
+   * hace ninguna petición si el paginador no se puede detectar o si ya no hay página siguiente:
+   * ambos casos son condiciones de parada legítimas, no errores.
+   */
+  async getNextPage(currentPage: SearchPageResult): Promise<SearchPageResult | null> {
+    const paginatorInfo = detectPaginator(currentPage.html, { paginatorId: this.config.paginatorId });
+    if (!paginatorInfo) {
+      logger.warn(
+        { paginatorId: this.config.paginatorId, pageNumber: currentPage.pageNumber },
+        'No se detectó ningún paginador en la página actual; no hay siguiente página que pedir',
+      );
+      return null;
+    }
+
+    const nextPageNumber = currentPage.pageNumber + 1;
+    if (!paginatorInfo.availablePages.includes(nextPageNumber) && !paginatorInfo.hasMorePages) {
+      logger.info(
+        { paginatorId: paginatorInfo.paginatorId, nextPageNumber, availablePages: paginatorInfo.availablePages },
+        'No hay una página siguiente disponible según el paginador; se detiene la paginación',
+      );
+      return null;
+    }
+
+    const resultsTableId = this.config.resultsTableId ?? DEFAULT_RESULTS_TABLE_ID;
+    const payload = buildJsfPayload({
+      formId: this.session.getFormId(),
+      viewState: this.session.getViewState(),
+      params: { [`${paginatorInfo.paginatorId}:page`]: String(nextPageNumber) },
+      ajax: {
+        source: paginatorInfo.paginatorId,
+        execute: paginatorInfo.paginatorId,
+        render: `${resultsTableId} ${paginatorInfo.paginatorId}`,
+      },
+    });
+
+    const postUrl = stripJsessionId(this.session.getFormAction());
+    const response = await this.httpClient.post(postUrl, payload);
+
+    const html = isPartialResponseBody(response.data)
+      ? extractHtmlFromPartialResponse(response.data)
+      : response.data;
+
+    this.session.updateFromResponse(response.data);
+    const viewState = this.session.getViewState();
+
+    const pageHtmlPath = await savePageHtml(this.config.outputDir, nextPageNumber, html);
+    logger.info({ path: pageHtmlPath, pageNumber: nextPageNumber }, 'Página de resultados guardada');
+
+    return {
+      pageNumber: nextPageNumber,
       html,
       rawResponse: response.data,
       viewState,

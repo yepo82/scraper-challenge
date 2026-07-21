@@ -29,6 +29,9 @@ const envSchema = z.object({
   PDF_CONCURRENCY: z.coerce.number().int().positive().default(1),
   LOG_LEVEL: z.enum(LOG_LEVELS).default('info'),
   SEARCH_BUTTON_ID: z.string().optional(),
+  RESULTS_TABLE_ID: z.string().optional(),
+  PAGINATOR_ID: z.string().optional(),
+  PAGE_SIZE: z.coerce.number().int().positive().optional(),
 });
 
 function parseEnv() {
@@ -59,4 +62,7 @@ export const appConfig: AppConfig = {
   pdfConcurrency: parsed.PDF_CONCURRENCY,
   logLevel: parsed.LOG_LEVEL,
   searchButtonId: parsed.SEARCH_BUTTON_ID,
+  resultsTableId: parsed.RESULTS_TABLE_ID,
+  paginatorId: parsed.PAGINATOR_ID,
+  pageSize: parsed.PAGE_SIZE,
 };

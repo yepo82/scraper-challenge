@@ -13,6 +13,9 @@ const ENV_KEYS = [
   'PDF_CONCURRENCY',
   'LOG_LEVEL',
   'SEARCH_BUTTON_ID',
+  'RESULTS_TABLE_ID',
+  'PAGINATOR_ID',
+  'PAGE_SIZE',
 ] as const;
 
 const originalEnv: Record<string, string | undefined> = {};
@@ -85,6 +88,36 @@ describe('appConfig', () => {
     const appConfig = await importAppConfig();
 
     expect(appConfig.searchButtonId).toBeUndefined();
+  });
+
+  it('passes RESULTS_TABLE_ID, PAGINATOR_ID and PAGE_SIZE through when set', async () => {
+    process.env.RESULTS_TABLE_ID = 'formBuscador:panel';
+    process.env.PAGINATOR_ID = 'formBuscador:data1';
+    process.env.PAGE_SIZE = '21';
+
+    vi.resetModules();
+    const appConfig = await importAppConfig();
+
+    expect(appConfig.resultsTableId).toBe('formBuscador:panel');
+    expect(appConfig.paginatorId).toBe('formBuscador:data1');
+    expect(appConfig.pageSize).toBe(21);
+    expect(typeof appConfig.pageSize).toBe('number');
+  });
+
+  it('leaves resultsTableId, paginatorId and pageSize undefined when not set', async () => {
+    vi.resetModules();
+    const appConfig = await importAppConfig();
+
+    expect(appConfig.resultsTableId).toBeUndefined();
+    expect(appConfig.paginatorId).toBeUndefined();
+    expect(appConfig.pageSize).toBeUndefined();
+  });
+
+  it('throws a clear error when PAGE_SIZE is not a positive integer', async () => {
+    process.env.PAGE_SIZE = '-1';
+
+    vi.resetModules();
+    await expect(importAppConfig()).rejects.toThrow(/PAGE_SIZE/);
   });
 
   it('applies sane defaults when optional vars are not set', async () => {
